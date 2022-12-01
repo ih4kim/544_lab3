@@ -35,9 +35,9 @@ def main():
     client = ControllerClient()
     response = client.send_request(float(sys.argv[1]), float(sys.argv[2]), float(sys.argv[3]), float(sys.argv[4]))
     if response.status:
-        client.get_logger().info('Arrived at destination')
+        client.get_logger().info('Moving to destination')
     else:
-        client.get_logger().info('Failed to arrive at destination')
+        client.get_logger().info('Failed to arrive at destination; invalid destination or start point')
         
     client.destroy_node()
     rclpy.shutdown()

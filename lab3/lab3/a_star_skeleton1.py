@@ -30,9 +30,8 @@ def get_distance(node1: node, node2: node):
     return math.sqrt(pow(pos1[0]-pos2[0],2)+ pow(pos1[1]-pos2[1],2))
 
 
-def astar(maze, start, end):
+def astar(maze, start, end, ogm_threshold):
     """Returns a list of tuples as a path from the given start to the given end in the given maze"""
-    ogm_threshold = 65
     # Create start and end node
     start_node = node(None, start)
     start_node.g = start_node.h = start_node.f = 0
