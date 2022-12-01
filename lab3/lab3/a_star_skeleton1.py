@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import math 
+import sys
 
 class node():
     """A node class for A* Pathfinding"""
@@ -16,16 +17,29 @@ class node():
     def __eq__(self, other):
         return self.position == other.position
 
+def check_in_bounds(width, height, px_x, px_y):
+    if (px_x < 0 or px_x > width-1):
+        return False
+    if (px_y < 0 or px_y > height-1):
+        return False
+    return True
+
+def get_distance(node1: node, node2: node):
+    pos1 = node1.position
+    pos2 = node2.position
+    return math.sqrt(pow(pos1[0]-pos2[0],2)+ pow(pos1[1]-pos2[1],2))
+
 
 def astar(maze, start, end):
     """Returns a list of tuples as a path from the given start to the given end in the given maze"""
-
+    ogm_threshold = 65
     # Create start and end node
     start_node = node(None, start)
     start_node.g = start_node.h = start_node.f = 0
     end_node = node(None, end)
     end_node.g = end_node.h = end_node.f = 0
-
+    # Save width and height of image
+    height, width = maze.shape
     # Initialize both open and closed list
     open_list = []
     closed_list = []
@@ -62,84 +76,36 @@ def astar(maze, start, end):
 
         # Complete here code to generate children, which are the neighboring nodes. You should use 4 or 8 points connectivity for a grid.
         children = []
-        for i in range(0,8):
-            if i==0:
-                if (current_node.position[1]-1< (len(maze))):
-                    if maze[current_node.position[0]][current_node.position[1]-1]!=1:
-                        new_node_postion = (current_node.position[0], current_node.position[1]-1)
-                new_node = node(current_node, new_node_postion)
-                children.append((new_node, i, maze[current_node.position[0]][current_node.position[1]-1]))
-            
-            if i==1:
-                if (current_node.position[1]+1>=0):
-                    if maze[current_node.position[0]][current_node.position[1]+1]!=1:
-                        new_node_postion = (current_node.position[0], current_node.position[1]+1)
-                new_node = node(current_node, new_node_postion)
-                children.append((new_node, i, maze[current_node.position[0]][current_node.position[1]+1]))
-
-            if i==2:
-                if (current_node.position[0]-1>=0):
-                    if maze[current_node.position[0]-1][current_node.position[1]]!=1:
-                        new_node_postion = (current_node.position[0]-1, current_node.position[1])
-                new_node = node(current_node, new_node_postion)
-                children.append((new_node, i, maze[current_node.position[0]-1][current_node.position[1]]))
-            
-            if i==3:
-                if (current_node.position[0]+1<(len(maze[0]))):
-                    if maze[current_node.position[0]+1][current_node.position[1]]!=1:
-                        new_node_postion = (current_node.position[0]+1, current_node.position[1])
-                new_node = node(current_node, new_node_postion)
-                children.append((new_node, i, maze[current_node.position[0]+1][current_node.position[1]]))
-
-            if i==4:
-                if (current_node.position[0]-1>=0 and current_node.position[1]-1< (len(maze))):
-                    if maze[current_node.position[0]-1][current_node.position[1]-1]!=1:
-                        new_node_postion = (current_node.position[0]-1, current_node.position[1]-1)
-                new_node = node(current_node, new_node_postion)
-                children.append((new_node, i, maze[current_node.position[0]-1][current_node.position[1]-1]))
-
-            if i==5:
-                if (current_node.position[0]-1>=0 and current_node.position[1]+1>=0):
-                    if maze[current_node.position[0]-1][current_node.position[1]+1]!=1:
-                        new_node_postion = (current_node.position[0]-1, current_node.position[1]+1)
-                new_node = node(current_node, new_node_postion)
-                children.append((new_node, i, maze[current_node.position[0]-1][current_node.position[1]+1]))
-            if i==6:
-                if (current_node.position[0]+1<(len(maze[0])) and current_node.position[1]-1< (len(maze))):
-                    if maze[current_node.position[0]+1][current_node.position[1]-1]!=1:
-                        new_node_postion = (current_node.position[0]+1, current_node.position[1]-1)
-                new_node = node(current_node, new_node_postion)
-                children.append((new_node, i, maze[current_node.position[0]+1][current_node.position[1]-1]))
-
-            if i==7:
-                if (current_node.position[0]+1<=(len(maze[0])) and current_node.position[1]+1>=0):
-                    if maze[current_node.position[0]+1][current_node.position[1]+1]!=1:
-                        new_node_postion = (current_node.position[0]+1, current_node.position[1]+1)
-                new_node = node(current_node, new_node_postion)
-                children.append((new_node, i, maze[current_node.position[0]+1][current_node.position[1]+1]))
-
-        # Loop through children to update the costs
+        distance = ((1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1), (0, -1), (1, -1))
+        for d_x, d_y in distance:
+            child_x = current_node.position[0]+d_x
+            child_y = current_node.position[1]+d_y
+            # Check if child is within range of map
+            if (check_in_bounds(width, height, child_x, child_y)):
+                # Check if the maze location is occupied
+                if maze[child_y][child_x] < ogm_threshold:
+                    pose = (child_x, child_y)
+                    new_node = node(current_node, pose)
+                    children.append(new_node)
+       
         for child in children:
-            # Child is on the closed list
-            for closed_child in closed_list:
-                if child[0] == closed_child:
-                    break
-            else:
-                if child[1]==4 or child[1]==5 or child[1]==6 or child[1]==7:
-                # Create the f, g, and h values, replace the 0s with appropriate formulations of the costs
-                    child[0].g = current_node.g + math.sqrt(2)+child[2]
+            if child not in closed_list:
+                # Calcuate distance from current node to child
+                distance = get_distance(current_node, child)
+                child.g = current_node.g + distance
+                child.h = get_distance(child, end_node)
+                child.f = child.g + child.h
+                if child in open_list:
+                    # find index of same child node
+                    index = open_list.index(child)
+                    existing_child = open_list[index]
+                    if existing_child.f > child.f:
+                        # Remove existing child, and append this child instead
+                        open_list.pop(index)
+                        open_list.append(child)
                 else:
-                    child[0].g = current_node.g + 1
-                child[0].h = ((child[0].position[0] - end_node.position[0]) ** 2) + ((child[0].position[1] - end_node.position[1]) ** 2)
-                child[0].f = child[0].g + child[0].h + child[2]
-
-                # Complete here code to check whether to add a child to the open list
-                for open_node in open_list:
-                    if child[0] == open_node and child[0].g > open_node.g:
-                        continue
-                open_list.append(child[0])
-
-
+                    open_list.append(child)
+                    
 def main():
 
     # Load your maze here

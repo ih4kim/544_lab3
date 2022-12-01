@@ -11,10 +11,10 @@ import math
 import numpy as np
 import cv2
 
-
+DEBUG = True
 
 class Pose():
-    def __init__(self, x, y, theta):
+    def __init__(self, x=0, y=0, theta=0):
         self.x = x
         self.y = y
         self.theta = theta
@@ -22,7 +22,7 @@ class Pose():
         self.heading = [math.cos(theta), math.sin(theta)]
 
     def __str__(self) -> str:
-        return f"x: {self.x} y: {self.y} theta: {self.theta*180/math.pi}"
+        return "x: %.2f y: %.2f theta: %.2f" % (self.x, self.y, self.theta*180/math.pi)
 
 class KpController(Node):
     def __init__(self):
@@ -51,7 +51,7 @@ class KpController(Node):
 
         # Error threshold
         self.error_threshold = 0.05
-
+        self.ogm_threshold = 65
         # Constant linear vel
         self.lin_vel = 0.1
 
@@ -66,17 +66,35 @@ class KpController(Node):
         
         start_x_px, start_y_px = self.cartesian_to_pixel(req.start.x, req.start.y)
         end_x_px, end_y_px = self.cartesian_to_pixel(req.end.x, req.end.y)
-
-        start_point = (start_x_px, start_y_px)
-        end_point = (end_x_px, end_y_px)
-
-        path = np.asarray(astar(self.maze, start_point, end_point), dtype=np.float)
-
-        print(path)
-
-        resp.status = True
-
+        if (self.check_valid_pixel(start_x_px, start_y_px) and self.check_valid_pixel(end_x_px, end_y_px)):
+            # Check if start and end points are valid positions
+            start_point = (start_x_px, start_y_px)
+            end_point = (end_x_px, end_y_px)
+            path = astar(self.maze, start_point, end_point)
+            print(path)
+            if DEBUG:
+                self.draw_path(path)
+            print(path)
+            resp.status = True
+        else:
+            resp.status = False
         return resp
+    
+    def draw_path(self, path):
+        test_image = cv2.cvtColor(self.maze, cv2.COLOR_GRAY2BGR)
+        path_len = len(path)
+        for i in range(1,path_len):
+            end_point = path[i]
+            start_point = path[i-1]
+            test_image = cv2.line(test_image, end_point, start_point, color=(0,0,255))
+        # Draw start and end
+        #End
+        test_image = cv2.circle(test_image, path[0], 1, color=(255,0,0))
+        #Start
+        test_image = cv2.circle(test_image, path[-1], 1, color=(0,255,0))
+        # Save iamge
+        cv2.imwrite("path_draw.png", test_image)
+            
 
     def kp_controller(self):
         ang_vel = 0
@@ -144,12 +162,27 @@ class KpController(Node):
                 # curr_theta ranges from -pi to pi
                 self.curr_pose.theta = math.atan2(siny_cosp, cosy_cosp)
                 # Output current pose
-                self.get_logger().info("Current Position: " + str(self.curr_pose))
+                # self.get_logger().info("Current Position: " + str(self.curr_pose))
                 break
 
+    def check_valid_pixel(self, px_x, px_y):
+        # Check if within bounds
+        self.get_logger().info("Target: x: %d y: %d" %(px_x, px_y))
+        if px_x < 0 or px_x > self.map_width-1:
+            self.get_logger().warn("x out of bounds!")
+            return False
+        if px_y < 0 or px_y > self.map_height-1:
+            self.get_logger().warn("y out of bounds!")
+            return False
+        print(self.maze[px_y][px_x])
+        if self.maze[px_y][px_x] > self.ogm_threshold:
+            self.get_logger().warn("Point occupied!")
+            return False
+        return True
+
     def cartesian_to_pixel(self, odom_x, odom_y):
-        px_x = (odom_x - self.origin_x) / self.resolution
-        px_y = (odom_y - (self.map_height * self.resolution - self.origin_y)) / -self.resolution
+        px_x = int((odom_x - self.origin_x) / self.resolution)
+        px_y = int((odom_y - (self.map_height * self.resolution + self.origin_y)) / -self.resolution)
         return px_x, px_y
 
     def create_costmap(self, msg: OccupancyGrid):
