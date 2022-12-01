@@ -131,7 +131,7 @@ def astar(maze, start, end):
                 else:
                     child[0].g = current_node.g + 1
                 child[0].h = ((child[0].position[0] - end_node.position[0]) ** 2) + ((child[0].position[1] - end_node.position[1]) ** 2)
-                child[0].f = child[0].g + child[0].h
+                child[0].f = child[0].g + child[0].h + child[2]
 
                 # Complete here code to check whether to add a child to the open list
                 for open_node in open_list:
