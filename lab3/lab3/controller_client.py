@@ -17,8 +17,13 @@ class ControllerClient(Node):
         self.req = StartAndEnd.Request()
 
     def send_request(self, start_x, start_y, end_x, end_y):
-        self.req.start = Point(start_x, start_y, 0)
-        self.req.end = Point(end_x, end_y, 0)
+        self.req.start = Point()
+        self.req.start.x = start_x
+        self.req.start.y = start_y
+
+        self.req.end = Point()
+        self.req.end.x = end_x
+        self.req.end.y=  end_y
         self.future = self.cli.call_async(self.req)
         rclpy.spin_until_future_complete(self, self.future)
         return self.future.result()
