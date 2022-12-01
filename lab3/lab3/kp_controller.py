@@ -10,8 +10,10 @@ from rclpy.node import Node
 import math
 import numpy as np
 import cv2
+import json
 
 DEBUG = True
+OFFLINE_MAP = False
 
 class Pose():
     def __init__(self, x=0, y=0, theta=0):
@@ -19,6 +21,10 @@ class Pose():
         self.y = y
         self.theta = theta
         # save unit vector as heading
+        self.heading = [math.cos(theta), math.sin(theta)]
+
+    def set_theta(self, theta):
+        self.theta = theta
         self.heading = [math.cos(theta), math.sin(theta)]
 
     def __str__(self) -> str:
@@ -29,7 +35,7 @@ class KpController(Node):
         super().__init__('kp_controller')
         self.publisher = self.create_publisher(Twist, '/cmd_vel', 10)
         self.subscriber = self.create_subscription(TFMessage, '/tf', self.update_pose, 10)
-        self.timer = self.create_timer(0.05, self.kp_controller)
+        self.timer = self.create_timer(0.01, self.kp_controller)
         self.srv = self.create_service(StartAndEnd, 'start_and_end', self.start_controller)
         self.map_subscriber = self.create_subscription(OccupancyGrid, '/global_costmap/costmap', self.create_costmap, 10)
         self.created_map = False
@@ -48,17 +54,37 @@ class KpController(Node):
         # Bottom left coordinate wrt to odom frame
         self.origin_x = -5.75
         self.origin_y = -3.72
+        self.maze = None
+        self.created_map = False
+
+        if OFFLINE_MAP:
+            f = open('scaledmap.json')
+            data = json.load(f)
+            self.resolution = data["resolution"]
+
+            # Map width and height
+            self.map_width = data["width"]
+            self.map_height = data["height"]
+
+            # Bottom left coordinate wrt to odom frame
+            self.origin_x = data["origin_x"]
+            self.origin_y = data["origin_y"]
+            self.maze = cv2.imread("ScaledMap.png")
+            self.maze = cv2.cvtColor(self.maze, cv2.COLOR_BGR2GRAY)
+            print(self.maze.shape)
+            self.created_map = True
 
         # Error threshold
         self.error_threshold = 0.05
-        self.ogm_threshold = 65
+        self.ogm_threshold = 55
         # Constant linear vel
         self.lin_vel = 0.1
-
+        #Pose Offset
+        self.tf_to_odom_x = -2.0
+        self.tf_to_odom_y = -0.5
         # Kp controller constant
-        self.kp = 3
-        self.maze = None
-        self.created_map = False
+        self.kp = 1
+        
 
     def start_controller(self, req, resp):
         print(req.start.x)
@@ -70,10 +96,10 @@ class KpController(Node):
             # Check if start and end points are valid positions
             start_point = (start_x_px, start_y_px)
             end_point = (end_x_px, end_y_px)
-            path = astar(self.maze, start_point, end_point)
-            print(path)
+            path = astar(self.maze, start_point, end_point, self.ogm_threshold)
             if DEBUG:
                 self.draw_path(path)
+            self.path_nodes = path
             print(path)
             resp.status = True
         else:
@@ -97,25 +123,28 @@ class KpController(Node):
             
 
     def kp_controller(self):
-        ang_vel = 0
+        ang_vel = float(0)
         if len(self.path_nodes)>0:
             # Get last node
             target_node = self.path_nodes[-1]
-            target_px_x, target_px_y = target_node.position
+            target_px_x, target_px_y = target_node
             target_odom_x, target_odom_y = self.pixel_to_cartesian(target_px_x, target_px_y)
             
             # Check if tolerance is met
-            if (self.euclidean_distance(target_odom_x, target_odom_y, self.curr_x, self.curr_y) < self.error_threshold):
+            # print(self.euclidean_distance(target_odom_x, target_odom_y, self.curr_pose.x, self.curr_pose.y))
+            if (self.euclidean_distance(target_odom_x, target_odom_y, self.curr_pose.x, self.curr_pose.y) < self.error_threshold):
                 # Remove the node, and continue for the next node on next iteration
                 self.path_nodes.pop()
             else:
                 # does not meet tolerance, calculate error in heading
                 desired_heading = self.get_desired_heading(target_odom_x, target_odom_y)
                 theta_error = math.acos(np.dot(desired_heading, self.curr_pose.heading))
+                # print(theta_error)
                 # determine direction of error
                 direction = 1 if np.cross(self.curr_pose.heading, desired_heading)>0 else -1
                 if abs(theta_error) > 0.01:
-                    ang_vel = theta_error*direction*self.kp
+                    ang_vel = float(theta_error*direction*self.kp)
+                    print(ang_vel)
                 msg = Twist()
                 msg.linear.x = self.lin_vel
                 msg.angular.z = ang_vel
@@ -143,10 +172,10 @@ class KpController(Node):
         for tf in msg.transforms:
             # Find the base footprint TF
             if tf.child_frame_id == "base_footprint":
-                if not self.tf_to_odom_x:
-                    # Update offset to tranform into odom frame
-                    self.tf_to_odom_x = tf.transform.translation.x
-                    self.tf_to_odom_y = tf.transform.translation.y
+                # if not self.tf_to_odom_x:
+                #     # Update offset to tranform into odom frame
+                #     self.tf_to_odom_x = tf.transform.translation.x
+                #     self.tf_to_odom_y = tf.transform.translation.y
                 # Update position
                 self.curr_pose.x = tf.transform.translation.x - self.tf_to_odom_x
                 self.curr_pose.y = tf.transform.translation.y - self.tf_to_odom_y
@@ -160,9 +189,10 @@ class KpController(Node):
                 siny_cosp = 2 * (q_w * q_z + q_x * q_y)
                 cosy_cosp = 1 - 2 * (q_y * q_y + q_z * q_z)
                 # curr_theta ranges from -pi to pi
-                self.curr_pose.theta = math.atan2(siny_cosp, cosy_cosp)
+                self.curr_pose.set_theta(math.atan2(siny_cosp, cosy_cosp))
+            
                 # Output current pose
-                # self.get_logger().info("Current Position: " + str(self.curr_pose))
+                self.get_logger().info("Current Position: " + str(self.curr_pose))
                 break
 
     def check_valid_pixel(self, px_x, px_y):
@@ -215,6 +245,17 @@ class KpController(Node):
             self.origin_y = origin.position.y
             self.maze = flipped_data
             self.created_map = True
+
+            dict = {}
+            dict["width"] = new_width
+            dict["height"] = new_height
+            dict["resolution"] = 0.2
+            dict["origin_x"] = origin.position.x
+            dict["origin_y"] = origin.position.y
+
+            with open("scaledmap.json", "w") as f:
+                json.dump(dict, f)
+
         
         
 def main():
