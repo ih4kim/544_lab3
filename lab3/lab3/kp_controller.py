@@ -13,7 +13,7 @@ import cv2
 import json
 
 DEBUG = True
-OFFLINE_MAP = False
+OFFLINE_MAP = True
 
 class Pose():
     def __init__(self, x=0, y=0, theta=0):
@@ -24,8 +24,9 @@ class Pose():
         self.heading = [math.cos(theta), math.sin(theta)]
 
     def set_theta(self, theta):
-        self.theta = theta
-        self.heading = [math.cos(theta), math.sin(theta)]
+        deg = 38.48
+        self.theta = theta+((180-deg)*math.pi/180)
+        self.heading = [math.cos(self.theta), math.sin(self.theta)]
 
     def __str__(self) -> str:
         return "x: %.2f y: %.2f theta: %.2f" % (self.x, self.y, self.theta*180/math.pi)
@@ -76,12 +77,12 @@ class KpController(Node):
 
         # Error threshold
         self.error_threshold = 0.05
-        self.ogm_threshold = 55
+        self.ogm_threshold = 75
         # Constant linear vel
-        self.lin_vel = 0.1
+        self.lin_vel = 0.05
         #Pose Offset
-        self.tf_to_odom_x = -2.0
-        self.tf_to_odom_y = -0.5
+        self.tf_to_odom_x = None#-2.0
+        self.tf_to_odom_y = None#-0.5
         # Kp controller constant
         self.kp = 1
         
@@ -99,6 +100,8 @@ class KpController(Node):
             path = astar(self.maze, start_point, end_point, self.ogm_threshold)
             if DEBUG:
                 self.draw_path(path)
+            path.pop()
+            path.pop()
             self.path_nodes = path
             print(path)
             resp.status = True
@@ -129,15 +132,19 @@ class KpController(Node):
             target_node = self.path_nodes[-1]
             target_px_x, target_px_y = target_node
             target_odom_x, target_odom_y = self.pixel_to_cartesian(target_px_x, target_px_y)
-            
+            print(target_odom_x, target_odom_y)
             # Check if tolerance is met
             # print(self.euclidean_distance(target_odom_x, target_odom_y, self.curr_pose.x, self.curr_pose.y))
             if (self.euclidean_distance(target_odom_x, target_odom_y, self.curr_pose.x, self.curr_pose.y) < self.error_threshold):
+                #print("HERE1")
                 # Remove the node, and continue for the next node on next iteration
                 self.path_nodes.pop()
             else:
+                #print("HERE")
                 # does not meet tolerance, calculate error in heading
                 desired_heading = self.get_desired_heading(target_odom_x, target_odom_y)
+                print("Desired heading", desired_heading)
+                print("Current heading", self.curr_pose.heading)
                 theta_error = math.acos(np.dot(desired_heading, self.curr_pose.heading))
                 # print(theta_error)
                 # determine direction of error
@@ -145,10 +152,12 @@ class KpController(Node):
                 if abs(theta_error) > 0.01:
                     ang_vel = float(theta_error*direction*self.kp)
                     print(ang_vel)
+                print("Target Theta: %.2f" % (theta_error*direction))
                 msg = Twist()
                 msg.linear.x = self.lin_vel
                 msg.angular.z = ang_vel
                 self.publisher.publish(msg)
+                
         else:
             # no nodes, stop sending signal
             msg = Twist()
@@ -172,13 +181,18 @@ class KpController(Node):
         for tf in msg.transforms:
             # Find the base footprint TF
             if tf.child_frame_id == "base_footprint":
-                # if not self.tf_to_odom_x:
-                #     # Update offset to tranform into odom frame
-                #     self.tf_to_odom_x = tf.transform.translation.x
-                #     self.tf_to_odom_y = tf.transform.translation.y
+                if not self.tf_to_odom_x:
+                    # Update offset to tranform into odom frame
+                    self.tf_to_odom_x = tf.transform.translation.x
+                    self.tf_to_odom_y = tf.transform.translation.y
                 # Update position
-                self.curr_pose.x = tf.transform.translation.x - self.tf_to_odom_x
-                self.curr_pose.y = tf.transform.translation.y - self.tf_to_odom_y
+                tempx = tf.transform.translation.x - self.tf_to_odom_x
+                tempy = tf.transform.translation.y - self.tf_to_odom_y
+                deg = 38.48+180
+                offset = 0.15
+                self.curr_pose.x = (tempx * math.cos(deg*math.pi/180) + tempy * math.sin(deg*math.pi/180))-offset
+
+                self.curr_pose.y = tempx * -math.sin(deg*math.pi/180) + tempy * math.cos(deg*math.pi/180)
 
                 # Update heading 
                 q_x = tf.transform.rotation.x
